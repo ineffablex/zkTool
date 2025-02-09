@@ -1,21 +1,27 @@
 import { createRouter, createWebHistory } from 'vue-router'
-
-const routes = [
-  {
-    path: '/',
-    name: 'Home',
-    component: () => import('../views/HomeView.vue')
-  },
-  {
-    path: '/cluster/:cluster',
-    name: 'Cluster',
-    component: () => import('../views/ClusterView.vue')
-  }
-]
+import HomeView from '../views/HomeView.vue'
+import ClusterView from '../views/ClusterView.vue'
+import DemoView from '../views/DemoView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes
+  routes: [
+    {
+      path: '/',
+      name: 'home',
+      component: HomeView
+    },
+    {
+      path: '/cluster/:cluster',
+      name: 'cluster',
+      component: ClusterView
+    },
+    {
+      path: '/demo',
+      name: 'demo',
+      component: DemoView
+    }
+  ]
 })
 
 export default router
