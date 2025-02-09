@@ -1,0 +1,53 @@
+# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
+# 忽略所有 .git 目录
+.git/
+
+# 忽略编译输出目录
+build/
+dist/
+out/
+
+# 忽略依赖目录
+node_modules/
+venv/
+__pycache__/
+
+# 忽略日志文件
+*.log
+
+# 忽略临时文件
+*.tmp
+*.temp
+.DS_Store
+
+# 忽略IDE配置文件
+.idea/
+.vscode/
+*.sublime-*
+
+# 忽略编译文件
+*.pyc
+*.class
+*.o
+*.exe
+
+# 忽略环境文件
+.env
+.env.*
+
+# 忽略压缩文件
+*.zip
+*.tar
+*.gz
+*.rar
+
+# 忽略数据文件
+*.csv
+*.json
+*.sqlite
+*.db
+# 忽略 VSCode 工作区文件夹
+.history/
+.vscode-test/
+.vscode-workspace/
+.vscode/
