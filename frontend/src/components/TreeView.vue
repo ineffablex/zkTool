@@ -139,6 +139,7 @@ const emit = defineEmits<{
   (e: 'node-click', node: NodeData): void
   (e: 'node-context-menu', event: { node: NodeData; x: number; y: number }): void
   (e: 'toggle-expand', event: { node: NodeData; expanded: boolean }): void
+  (e: 'node-operation', event: { type: 'create' | 'update' | 'delete'; node: NodeData }): void
 }>()
 
 const store = useZkStore()
@@ -232,22 +233,31 @@ const closeContextMenu = () => {
 const getContextMenuItems = (node: NodeData | null) => {
   if (!node) return []
 
+  const store = useZkStore()
   return [
     {
       label: '新建子节点',
       icon: 'plus',
-      action: () => store.performNodeOperation('create', node),
-      disabled: node.isLeaf
+      action: () => {
+        store.setSelectedNode(node)
+        emit('node-operation', { type: 'create', node })
+      }
     },
     {
       label: '编辑节点',
       icon: 'edit',
-      action: () => store.performNodeOperation('update', node)
+      action: () => {
+        store.setSelectedNode(node)
+        emit('node-operation', { type: 'update', node })
+      }
     },
     {
       label: '删除节点',
       icon: 'trash',
-      action: () => store.performNodeOperation('delete', node)
+      action: () => {
+        store.setSelectedNode(node)
+        emit('node-operation', { type: 'delete', node })
+      }
     },
     {
       label: '复制路径',

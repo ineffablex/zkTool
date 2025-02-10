@@ -4,6 +4,8 @@ import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -20,22 +22,53 @@ public class ZkService {
     private String currentCluster;
     private final Map<String, Set<ZkNodeListener>> pathListeners = new ConcurrentHashMap<>();
     private final Map<String, byte[]> dataCache = new ConcurrentHashMap<>();
+    private static final Logger logger = LoggerFactory.getLogger(ZkService.class);
 
     public void connect(String address) throws IOException, InterruptedException {
+        logger.info("开始连接ZooKeeper集群: {}", address);
         try {
-            CountDownLatch connectedSignal = new CountDownLatch(1);
-            this.zooKeeper = new ZooKeeper(address, 30000, watchedEvent -> {
-                if (watchedEvent.getState() == Watcher.Event.KeeperState.SyncConnected) {
-                    connectedSignal.countDown();
-                }
-                handleWatchedEvent(watchedEvent);
-            });
-            if (!connectedSignal.await(5, TimeUnit.SECONDS)) {
-                throw new IOException("连接Zookeeper超时");
+            if (zooKeeper != null && zooKeeper.getState().isAlive()) {
+                logger.info("关闭已存在的连接");
+                close();
             }
-            this.currentCluster = address;
+
+            CountDownLatch connectionLatch = new CountDownLatch(1);
+            this.zooKeeper = new ZooKeeper(address, 30000, event -> {
+                if (event.getState() == Watcher.Event.KeeperState.SyncConnected) {
+                    logger.info("ZooKeeper连接已建立");
+                    connectionLatch.countDown();
+                } else if (event.getState() == Watcher.Event.KeeperState.Expired) {
+                    logger.warn("ZooKeeper会话已过期");
+                } else if (event.getState() == Watcher.Event.KeeperState.Disconnected) {
+                    logger.warn("ZooKeeper连接已断开");
+                }
+                handleWatchedEvent(event);
+            });
+
+            logger.info("等待ZooKeeper连接建立...");
+            if (!connectionLatch.await(5, TimeUnit.SECONDS)) {
+                throw new IOException("连接ZooKeeper超时");
+            }
+
+            // 验证连接
+            try {
+                zooKeeper.exists("/", false);
+                this.currentCluster = address;
+                logger.info("成功连接到ZooKeeper集群");
+            } catch (KeeperException e) {
+                throw new IOException("连接验证失败: " + e.getMessage());
+            }
         } catch (Exception e) {
-            throw new IOException("无法连接到Zookeeper: " + e.getMessage());
+            logger.error("连接ZooKeeper失败: {}", e.getMessage(), e);
+            if (zooKeeper != null) {
+                try {
+                    zooKeeper.close();
+                } catch (InterruptedException ie) {
+                    logger.warn("关闭失败的连接时出错", ie);
+                }
+                zooKeeper = null;
+            }
+            throw new IOException("无法连接到ZooKeeper: " + e.getMessage());
         }
     }
 
@@ -65,6 +98,9 @@ public class ZkService {
         node.setUpdateTime(LocalDateTime.now()); // TODO: Convert from stat.getMtime()
         node.setVersion(String.valueOf(stat.getVersion()));
         node.setStatus("connected");
+        node.setExpanded(false);
+        node.setSelected(false);
+        node.setIsLeaf(children.isEmpty());
 
         if (!children.isEmpty()) {
             List<NodeInfo> childNodes = new ArrayList<>();
@@ -73,6 +109,8 @@ public class ZkService {
                 childNodes.add(getNode(childPath));
             }
             node.setChildren(childNodes);
+        } else {
+            node.setChildren(new ArrayList<>());
         }
 
         return node;
@@ -156,7 +194,8 @@ public class ZkService {
     // 工具方法
     private void validateConnection() {
         if (zooKeeper == null || !zooKeeper.getState().isAlive()) {
-            throw new IllegalStateException("ZooKeeper 连接未建立或已关闭");
+            logger.error("ZooKeeper连接未建立或已关闭");
+            throw new IllegalStateException("ZooKeeper连接未建立或已关闭");
         }
     }
 
@@ -180,21 +219,28 @@ public class ZkService {
     }
 
     private void handleWatchedEvent(WatchedEvent event) {
+        if (event == null) {
+            logger.warn("收到空的Watch事件");
+            return;
+        }
+
+        logger.debug("收到Watch事件: type={}, state={}, path={}", 
+                    event.getType(), 
+                    event.getState(), 
+                    event.getPath());
+
+        // 只处理有路径的事件
+        if (event.getPath() == null) {
+            return;
+        }
+        
         try {
-            // 重新注册监听
+            // 重新注册监听器
             zooKeeper.exists(event.getPath(), true);
-            
             // 通知相关监听器
-            Set<ZkNodeListener> listeners = pathListeners.get(event.getPath());
-            if (listeners != null) {
-                NodeEvent nodeEvent = convertEventType(event.getType());
-                for (ZkNodeListener listener : listeners) {
-                    listener.onNodeEvent(event.getPath(), nodeEvent);
-                }
-            }
+            notifyListeners(event.getPath(), convertEventType(event.getType()));
         } catch (Exception e) {
-            // 处理异常
-            e.printStackTrace();
+            logger.error("处理Watch事件失败: {}", e.getMessage(), e);
         }
     }
 
@@ -209,6 +255,60 @@ public class ZkService {
             default:
                 return NodeEvent.UNKNOWN;
         }
+    }
+
+    private void notifyListeners(String path, NodeEvent event) {
+        // 获取当前路径的监听器
+        Set<ZkNodeListener> listeners = pathListeners.get(path);
+        if (listeners != null) {
+            // 遍历通知所有监听器
+            for (ZkNodeListener listener : listeners) {
+                try {
+                    listener.onNodeEvent(path, event);
+                } catch (Exception e) {
+                    // 捕获并记录监听器执行过程中的异常，但不影响其他监听器
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        // 通知父节点的监听器
+        String parentPath = getParentPath(path);
+        if (parentPath != null) {
+            Set<ZkNodeListener> parentListeners = pathListeners.get(parentPath);
+            if (parentListeners != null) {
+                for (ZkNodeListener listener : parentListeners) {
+                    try {
+                        listener.onNodeEvent(path, event);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+
+        // 更新缓存
+        try {
+            if (event == NodeEvent.DELETED) {
+                dataCache.remove(path);
+            } else if (event == NodeEvent.CREATED || event == NodeEvent.UPDATED) {
+                byte[] data = zooKeeper.getData(path, true, null);
+                dataCache.put(path, data);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private String getParentPath(String path) {
+        if (path == null || path.equals("/")) {
+            return null;
+        }
+        int lastSlashIndex = path.lastIndexOf('/');
+        if (lastSlashIndex == 0) {
+            return "/";
+        }
+        return path.substring(0, lastSlashIndex);
     }
 }
 

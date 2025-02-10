@@ -20,3 +20,16 @@ export interface ContextMenuItem {
 }
 
 export type NodeOperation = 'create' | 'update' | 'delete' | 'copy' | 'move';
+
+export interface NodeOperationData {
+  path: string;
+  data?: string;
+  mode?: string;
+  version?: number;
+}
+
+export interface ApiResponse<T = any> {
+  success: boolean;
+  message?: string;
+  data?: T;
+}
