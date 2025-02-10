@@ -7,17 +7,21 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.apache.zookeeper.CreateMode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/zk")
+@RequestMapping("/zk")
 @Tag(name = "ZooKeeper管理", description = "提供ZooKeeper节点的管理和操作功能")
 public class ZkController {
+    private static final Logger logger = LoggerFactory.getLogger(ZkController.class);
 
     @Autowired
     private ZkService zkService;
@@ -25,22 +29,45 @@ public class ZkController {
     @Operation(summary = "连接到ZooKeeper集群")
     @GetMapping("/connect")
     public ApiResponse<String> connect(@RequestParam String address) {
+        if (address == null || address.trim().isEmpty()) {
+            logger.warn("连接地址为空");
+            return ApiResponse.error("连接地址不能为空");
+        }
+
+        logger.info("尝试连接到ZooKeeper集群: {}", address);
         try {
             zkService.connect(address);
-            return ApiResponse.success("成功连接到 " + address);
+            String successMsg = String.format("成功连接到ZooKeeper集群: %s", address);
+            logger.info(successMsg);
+            return ApiResponse.success(successMsg);
         } catch (Exception e) {
-            return ApiResponse.error("连接失败: " + e.getMessage());
+            String errorMsg = String.format("连接ZooKeeper集群失败: %s, 原因: %s", address, e.getMessage());
+            logger.error(errorMsg, e);
+            return ApiResponse.error(errorMsg);
         }
     }
 
     @Operation(summary = "获取节点信息")
     @GetMapping("/nodes")
-    public ApiResponse<NodeInfo> getNode(@RequestParam String path) {
+    public ApiResponse<NodeInfo> getNode(
+            @RequestParam(required = false, defaultValue = "/") String path,
+            @RequestParam(required = false) String cluster) {
+        
+        logger.info("获取节点信息: path={}, cluster={}", path, cluster);
+        
         try {
-            NodeInfo node = zkService.getNode(path);
-            return ApiResponse.success(node);
+            // 如果指定了集群地址，先尝试连接
+            if (cluster != null && !cluster.trim().isEmpty()) {
+                zkService.connect(cluster);
+            }
+            
+            NodeInfo rootNode = zkService.getNode(path);
+            logger.info("成功获取节点信息: {}", rootNode);
+            return ApiResponse.success(rootNode);
         } catch (Exception e) {
-            return ApiResponse.error("获取节点信息失败: " + e.getMessage());
+            String errorMsg = String.format("获取节点[%s]信息失败: %s", path, e.getMessage());
+            logger.error(errorMsg, e);
+            return ApiResponse.error(errorMsg);
         }
     }
 
@@ -57,7 +84,7 @@ public class ZkController {
     }
 
     @Operation(summary = "更新节点")
-    @PutMapping("/nodes")
+    @PutMapping("/nodes/update")
     public ApiResponse<String> updateNode(@Valid @RequestBody NodeRequest request) {
         try {
             zkService.updateNode(request.getPath(), request.getData(), request.getVersion());
@@ -68,10 +95,20 @@ public class ZkController {
     }
 
     @Operation(summary = "删除节点")
-    @DeleteMapping("/nodes")
-    public ApiResponse<String> deleteNode(@RequestParam String path, @RequestParam(required = false) Integer version) {
+    @DeleteMapping("/nodes/delete")
+    public ApiResponse<String> deleteNode(@Valid @RequestBody NodeRequest request) {
         try {
-            zkService.deleteNode(path, version != null ? version : -1);
+            // 获取节点信息，检查是否有子节点
+            NodeInfo node = zkService.getNode(request.getPath());
+            if (node.getChildren() != null && !node.getChildren().isEmpty()) {
+                // 如果有子节点，先删除所有子节点
+                for (NodeInfo child : node.getChildren()) {
+                    zkService.deleteNode(child.getPath(), -1);
+                }
+            }
+            
+            // 删除当前节点
+            zkService.deleteNode(request.getPath(), request.getVersion() != null ? request.getVersion() : -1);
             return ApiResponse.success("节点删除成功");
         } catch (Exception e) {
             return ApiResponse.error("删除节点失败: " + e.getMessage());

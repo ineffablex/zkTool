@@ -1,110 +1,33 @@
 package com.mytool.zktool;
 
+import lombok.Data;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Data
 public class NodeInfo {
-    private String path;           // 节点完整路径
-    private String name;           // 节点名称
-    private String data;           // 节点数据
-    private List<ACL> acls;       // 访问控制列表
-    private Stat stat;            // 节点状态信息
-    private List<NodeInfo> children; // 子节点列表
+    private String path;            // 节点路径
+    private String name;            // 节点名称
+    private String data;            // 节点数据
+    private List<ACL> acls;         // 访问控制列表
+    private Stat stat;              // 节点状态
     private LocalDateTime createTime; // 创建时间
     private LocalDateTime updateTime; // 更新时间
-    private String version;        // 数据版本
-    private String status;         // 节点状态
-    private String ip;            // 节点IP地址
+    private String version;         // 版本号
+    private String status;          // 节点状态
+    private List<NodeInfo> children; // 子节点列表
+    private boolean expanded;       // 是否展开
+    private boolean selected;       // 是否选中
+    private boolean isLeaf;         // 是否为叶子节点
 
-    // Getters and Setters
-    public String getPath() {
-        return path;
+    public boolean getIsLeaf() {
+        return children == null || children.isEmpty();
     }
 
-    public void setPath(String path) {
-        this.path = path;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getData() {
-        return data;
-    }
-
-    public void setData(String data) {
-        this.data = data;
-    }
-
-    public List<ACL> getAcls() {
-        return acls;
-    }
-
-    public void setAcls(List<ACL> acls) {
-        this.acls = acls;
-    }
-
-    public Stat getStat() {
-        return stat;
-    }
-
-    public void setStat(Stat stat) {
-        this.stat = stat;
-    }
-
-    public List<NodeInfo> getChildren() {
-        return children;
-    }
-
-    public void setChildren(List<NodeInfo> children) {
-        this.children = children;
-    }
-
-    public LocalDateTime getCreateTime() {
-        return createTime;
-    }
-
-    public void setCreateTime(LocalDateTime createTime) {
-        this.createTime = createTime;
-    }
-
-    public LocalDateTime getUpdateTime() {
-        return updateTime;
-    }
-
-    public void setUpdateTime(LocalDateTime updateTime) {
-        this.updateTime = updateTime;
-    }
-
-    public String getVersion() {
-        return version;
-    }
-
-    public void setVersion(String version) {
-        this.version = version;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public String getIp() {
-        return ip;
-    }
-
-    public void setIp(String ip) {
-        this.ip = ip;
+    public void setIsLeaf(boolean isLeaf) {
+        this.isLeaf = isLeaf;
     }
 }
