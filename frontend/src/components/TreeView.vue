@@ -80,9 +80,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { useZkStore } from '../store'
-import type { NodeData } from '../types/node'
+import type { NodeData, ContextMenuItem } from '../types/node'
 import ContextMenu from './ContextMenu.vue'
 
 const props = defineProps<{
@@ -221,6 +221,19 @@ const showContextMenu = (event: MouseEvent, node: NodeData) => {
     node
   }
   emit('node-context-menu', { node, x: event.clientX, y: event.clientY })
+  
+  // 添加全局点击事件监听器
+  setTimeout(() => {
+    document.addEventListener('click', handleClickOutside)
+  }, 0)
+}
+
+// 处理点击外部
+const handleClickOutside = (event: MouseEvent) => {
+  // 关闭菜单
+  closeContextMenu()
+  // 移除事件监听器
+  document.removeEventListener('click', handleClickOutside)
 }
 
 // 关闭右键菜单
@@ -229,12 +242,28 @@ const closeContextMenu = () => {
   contextMenu.value.node = null
 }
 
+// 在组件卸载时清理事件监听器
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
+
 // 获取右键菜单项
-const getContextMenuItems = (node: NodeData | null) => {
+const getContextMenuItems = (node: NodeData | null): ContextMenuItem[] => {
   if (!node) return []
 
   const store = useZkStore()
-  return [
+  const menuItems: ContextMenuItem[] = [
+    {
+      label: '节点信息',
+      icon: 'info',
+      action: () => {}, // 空函数满足类型要求
+      items: [
+        { label: `路径: ${node.path}`, action: () => {}, disabled: true },
+        { label: `创建时间: ${formatTime(Number(node.createTime))}`, action: () => {}, disabled: true },
+        { label: `修改时间: ${formatTime(Number(node.updateTime))}`, action: () => {}, disabled: true },
+        { label: `版本: ${node.version}`, action: () => {}, disabled: true }
+      ]
+    },
     {
       label: '新建子节点',
       icon: 'plus',
@@ -265,6 +294,21 @@ const getContextMenuItems = (node: NodeData | null) => {
       action: () => navigator.clipboard.writeText(node.path)
     }
   ]
+
+  return menuItems
+}
+
+// 格式化时间
+const formatTime = (timestamp: number | undefined): string => {
+  if (!timestamp) return '-'
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 }
 </script>
 

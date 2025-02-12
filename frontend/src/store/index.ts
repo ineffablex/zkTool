@@ -8,6 +8,7 @@ interface State {
   selectedNode: NodeData | null;
   loading: boolean;
   error: string | null;
+  isConnected: boolean;
 }
 
 export const useZkStore = defineStore('zk', {
@@ -17,7 +18,8 @@ export const useZkStore = defineStore('zk', {
     nodeTree: [],
     selectedNode: null,
     loading: false,
-    error: null
+    error: null,
+    isConnected: false
   }),
 
   getters: {
@@ -394,6 +396,23 @@ export const useZkStore = defineStore('zk', {
         console.error('处理节点数据失败:', error)
         return []
       }
+    },
+
+    // 更新节点展开状态
+    updateNodeExpandState(path: string, expanded: boolean) {
+      const updateNode = (nodes: NodeData[]): boolean => {
+        for (const node of nodes) {
+          if (node.path === path) {
+            node.expanded = expanded;
+            return true;
+          }
+          if (node.children && updateNode(node.children)) {
+            return true;
+          }
+        }
+        return false;
+      };
+      updateNode(this.nodeTree);
     }
   }
 })

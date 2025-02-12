@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -94,8 +96,8 @@ public class ZkService {
         node.setData(data != null ? new String(data, StandardCharsets.UTF_8) : null);
         node.setAcls(acls);
         node.setStat(stat);
-        node.setCreateTime(LocalDateTime.now()); // TODO: Convert from stat.getCtime()
-        node.setUpdateTime(LocalDateTime.now()); // TODO: Convert from stat.getMtime()
+        node.setCreateTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(stat.getCtime()), ZoneId.systemDefault()));
+        node.setUpdateTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(stat.getMtime()), ZoneId.systemDefault()));
         node.setVersion(String.valueOf(stat.getVersion()));
         node.setStatus("connected");
         node.setExpanded(false);

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mytool.zktool.mapper.ClusterMapper">
+    
+    <select id="findAll" resultType="com.mytool.zktool.entity.Cluster">
+        SELECT * FROM clusters
+    </select>
+    
+    <select id="findById" resultType="com.mytool.zktool.entity.Cluster">
+        SELECT * FROM clusters WHERE id = #{id}
+    </select>
+    
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO clusters (name, host, port, description)
+        VALUES (#{name}, #{host}, #{port}, #{description})
+    </insert>
+    
+    <update id="update">
+        UPDATE clusters
+        SET name = #{name},
+            host = #{host},
+            port = #{port},
+            description = #{description}
+        WHERE id = #{id}
+    </update>
+    
+    <delete id="delete">
+        DELETE FROM clusters WHERE id = #{id}
+    </delete>
+    
+</mapper> 

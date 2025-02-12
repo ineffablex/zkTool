@@ -13,6 +13,15 @@ export default {
         warning: '#f59e0b',
         danger: '#ef4444',
         info: '#0ea5e9'
+      },
+      container: {
+        screens: {
+          sm: '640px',
+          md: '768px',
+          lg: '1024px',
+          xl: '1280px',
+          '2xl': '1920px',
+        }
       }
     },
   },

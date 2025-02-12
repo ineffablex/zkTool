@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS clusters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 3,
+    timeout INTEGER NOT NULL DEFAULT 5000,
+    description TEXT
+); 

@@ -17,6 +17,7 @@ export interface ContextMenuItem {
   icon?: string;
   action: () => void;
   disabled?: boolean;
+  items?: ContextMenuItem[];
 }
 
 export type NodeOperation = 'create' | 'update' | 'delete' | 'copy' | 'move';
