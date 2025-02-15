@@ -24,7 +24,15 @@
            @mouseover="hoverCard(cluster)" 
            @click="connectCluster(cluster)"
            :class="{ 'active': selectedCluster?.id === cluster.id }">
-        <h3>{{ cluster.name }}</h3>
+        <div class="flex justify-between items-center">
+          <h3>{{ cluster.name }}</h3>
+          <span :class="[
+            'px-2 py-1 text-xs rounded-full',
+            (selectedCluster?.id === cluster.id && store.isConnected) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          ]">
+            {{ selectedCluster?.id === cluster.id && store.isConnected ? '已连接' : '未连接' }}
+          </span>
+        </div>
         <p class="host-info">{{ cluster.host }}:{{ cluster.port }}</p>
         <p class="description">{{ cluster.description }}</p>
       </div>
@@ -74,6 +82,8 @@
 
 <script>
 import axios from 'axios';
+import { useZkStore } from '../store';
+import { ElMessage } from 'element-plus';
 
 export default {
   data() {
@@ -100,6 +110,10 @@ export default {
       }
     };
   },
+  setup() {
+    const store = useZkStore();
+    return { store };
+  },
   created() {
     this.fetchClusters();
   },
@@ -110,6 +124,7 @@ export default {
         this.clusters = response.data;
       } catch (error) {
         console.error('获取集群列表失败:', error);
+        ElMessage.error('获取集群列表失败');
       }
     },
     toggleTab() {
@@ -140,6 +155,7 @@ export default {
               cluster: cluster,
               nodes: rootData.data.data
             });
+            ElMessage.success('集群连接成功');
           } else {
             throw new Error(rootData.data.message || '获取节点数据失败');
           }
@@ -151,7 +167,14 @@ export default {
         // 显示错误提示
         const errorMessage = error.response?.data?.message || error.message;
         this.$emit('connection-error', errorMessage);
-        alert(errorMessage);
+        ElMessage.error(`连接失败: ${errorMessage}`);
+        // 更新连接状态
+        this.store.$patch({ 
+          isConnected: false,
+          currentCluster: null
+        });
+        // 清空节点树
+        this.store.$patch({ nodeTree: [] });
       }
     },
     showAddDialog() {
@@ -195,35 +218,43 @@ export default {
 
       if (!this.editingCluster.name) {
         this.validationErrors.name = '请输入集群名称';
+        ElMessage.warning('请输入集群名称');
         isValid = false;
       }
 
       if (!this.editingCluster.host) {
         this.validationErrors.host = '请输入主机地址';
+        ElMessage.warning('请输入主机地址');
         isValid = false;
       }
 
       if (!this.editingCluster.port) {
         this.validationErrors.port = '请输入端口号';
+        ElMessage.warning('请输入端口号');
         isValid = false;
       } else if (this.editingCluster.port < 1 || this.editingCluster.port > 65535) {
         this.validationErrors.port = '端口号必须在1-65535之间';
+        ElMessage.warning('端口号必须在1-65535之间');
         isValid = false;
       }
 
       if (!this.editingCluster.retryCount && this.editingCluster.retryCount !== 0) {
         this.validationErrors.retryCount = '请输入重试次数';
+        ElMessage.warning('请输入重试次数');
         isValid = false;
       } else if (this.editingCluster.retryCount < 0) {
         this.validationErrors.retryCount = '重试次数不能小于0';
+        ElMessage.warning('重试次数不能小于0');
         isValid = false;
       }
 
       if (!this.editingCluster.timeout) {
         this.validationErrors.timeout = '请输入超时时间';
+        ElMessage.warning('请输入超时时间');
         isValid = false;
       } else if (this.editingCluster.timeout < 100) {
         this.validationErrors.timeout = '超时时间不能小于100ms';
+        ElMessage.warning('超时时间不能小于100ms');
         isValid = false;
       }
 
@@ -240,13 +271,16 @@ export default {
           response = await axios.put(`/api/clusters/${this.editingCluster.id}`, this.editingCluster);
           const index = this.clusters.findIndex(c => c.id === this.editingCluster.id);
           this.clusters.splice(index, 1, response.data);
+          ElMessage.success('集群配置修改成功');
         } else {
           response = await axios.post('/api/clusters', this.editingCluster);
           this.clusters.push(response.data);
+          ElMessage.success('集群配置添加成功');
         }
         this.closeDialog();
       } catch (error) {
         console.error(this.isEdit ? '修改集群失败:' : '添加集群失败:', error);
+        ElMessage.error(this.isEdit ? '修改集群失败' : '添加集群失败');
       }
     },
     async confirmDelete() {
@@ -257,8 +291,10 @@ export default {
           const index = this.clusters.findIndex(c => c.id === this.selectedCluster.id);
           this.clusters.splice(index, 1);
           this.selectedCluster = null;
+          ElMessage.success('集群删除成功');
         } catch (error) {
           console.error('删除集群失败:', error);
+          ElMessage.error('删除集群失败');
         }
       }
     }
@@ -269,7 +305,7 @@ export default {
 <style scoped>
 .cluster-tab {
   width: 300px;
-  height: 90vh;
+  height: 98vh;
   background-color: #f8f9fa;
   border-right: 1px solid #dee2e6;
   transition: transform 0.3s ease;

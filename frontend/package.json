@@ -13,6 +13,9 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "axios": "^1.7.9",
+    "element-plus": "^2.9.4",
+    "highlight.js": "^11.11.1",
     "pinia": "^2.1.7",
     "tailwindcss": "^3.4.1",
     "vue": "^3.4.15",
@@ -26,6 +29,7 @@
     "@types/node": "^20.11.10",
     "@vitejs/plugin-vue": "^5.0.3",
     "@vitest/coverage-v8": "^1.2.2",
+    "@vitest/ui": "^1.2.2",
     "@vue/test-utils": "^2.4.4",
     "autoprefixer": "^10.4.17",
     "jsdom": "^24.0.0",
@@ -33,7 +37,6 @@
     "typescript": "^5.3.3",
     "vite": "^5.0.12",
     "vitest": "^1.2.2",
-    "@vitest/ui": "^1.2.2",
     "vue-tsc": "^1.8.27"
   }
 }

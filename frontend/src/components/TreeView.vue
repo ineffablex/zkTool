@@ -1,25 +1,20 @@
 <template>
   <div ref="containerRef"
-       class="tree-container overflow-auto"
-       @scroll="handleScroll"
-       :style="{ height: `${visibleItems * itemHeight}px` }">
-    <div :style="{ height: `${getTotalHeight(data)}px`, position: 'relative' }">
-      <ul class="tree-list absolute w-full"
-          :style="{ transform: `translateY(${scrollTop}px)` }">
-        <li v-for="{ node, level } in visibleNodes" 
+       class="tree-container custom-scrollbar"
+       @scroll="handleScroll">
+    <div class="tree-content" :style="{ minHeight: `${getTotalHeight(data)}px` }">
+      <ul class="tree-list">
+        <li v-for="{ node, level } in flattenedNodes" 
             :key="node.path"
-            class="tree-item"
-            :style="{ 
-              height: `${itemHeight}px`,
-              paddingLeft: `${level * 1.5}rem`
-            }">
-          <div class="flex items-center h-full py-1 px-2 rounded-md hover:bg-gray-100 cursor-pointer select-none"
+            class="tree-item whitespace-nowrap"
+            :style="{ paddingLeft: `${level * 1.5}rem` }">
+          <div class="flex items-center py-1 px-2 rounded-md hover:bg-gray-100 cursor-pointer select-none"
                :class="{ 'bg-blue-50': node.selected }"
                @click="handleNodeClick(node)"
                @contextmenu.prevent="showContextMenu($event, node)">
             <!-- 展开/折叠图标 -->
             <button v-if="!node.isLeaf"
-                    @click.stop
+                    @click.stop="toggleExpand($event, node)"
                     class="mr-2 w-6 h-6 flex items-center justify-center text-gray-500 hover:text-gray-700"
                     data-testid="toggle-button">
               <svg v-if="node.expanded" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -32,7 +27,7 @@
             <span v-else class="w-6"></span>
 
             <!-- 节点图标 -->
-            <span class="mr-2">
+            <span class="mr-2 flex-shrink-0">
               <svg v-if="node.isLeaf" 
                    class="w-4 h-4 text-gray-500" 
                    fill="none" 
@@ -52,18 +47,7 @@
             </span>
 
             <!-- 节点名称 -->
-            <span class="flex-grow truncate" :title="node.path">{{ node.name }}</span>
-
-            <!-- 节点状态 -->
-            <span v-if="node.status" 
-                  class="ml-2 px-2 py-0.5 text-xs rounded-full"
-                  :class="{
-                    'bg-green-100 text-green-800': node.status === 'connected',
-                    'bg-red-100 text-red-800': node.status === 'disconnected',
-                    'bg-yellow-100 text-yellow-800': node.status === 'warning'
-                  }">
-              {{ node.status }}
-            </span>
+            <span class="truncate" :title="node.path">{{ node.name }}</span>
           </div>
         </li>
       </ul>
@@ -77,13 +61,21 @@
     :y="contextMenu.y"
     :items="getContextMenuItems(contextMenu.node)"
     @close="closeContextMenu" />
+
+  <!-- 添加节点信息对话框 -->
+  <NodeInfoDialog
+    :show="showNodeInfo"
+    :node="contextMenu.node"
+    @update:show="showNodeInfo = $event"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted } from 'vue'
 import { useZkStore } from '../store'
-import type { NodeData, ContextMenuItem } from '../types/node'
+import type { NodeData, ContextMenuItem, ApiResponse } from '../types/node'
 import ContextMenu from './ContextMenu.vue'
+import NodeInfoDialog from './NodeInfoDialog.vue'
 
 const props = defineProps<{
   data: NodeData[]
@@ -92,15 +84,10 @@ const props = defineProps<{
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
-const scrollTop = ref(0)
-
-// 设置默认值
-const itemHeight = computed(() => props.itemHeight || 32) // 每个节点的高度
-const visibleItems = computed(() => props.visibleItems || 20) // 可见节点数量
 
 // 计算总高度
 const getTotalHeight = (nodes: NodeData[]): number => {
-  let height = nodes.length * itemHeight.value
+  let height = nodes.length * (props.itemHeight || 32)
   nodes.forEach(node => {
     if (node.expanded && node.children) {
       height += getTotalHeight(node.children)
@@ -121,18 +108,14 @@ const flattenTree = (nodes: NodeData[], level = 0): { node: NodeData; level: num
   return result
 }
 
-// 计算可见节点
-const visibleNodes = computed(() => {
-  const flatNodes = flattenTree(props.data)
-  const startIndex = Math.floor(scrollTop.value / itemHeight.value)
-  const endIndex = Math.min(startIndex + visibleItems.value, flatNodes.length)
-  return flatNodes.slice(startIndex, endIndex)
+// 计算所有可见节点
+const flattenedNodes = computed(() => {
+  return flattenTree(props.data)
 })
 
 // 处理滚动事件
 const handleScroll = (event: Event) => {
-  const target = event.target as HTMLElement
-  scrollTop.value = target.scrollTop
+  // 保留滚动事件处理，但不再需要计算虚拟滚动的偏移量
 }
 
 const emit = defineEmits<{
@@ -151,6 +134,9 @@ const contextMenu = ref({
   y: 0,
   node: null as NodeData | null
 })
+
+// 添加状态
+const showNodeInfo = ref(false)
 
 // 展开/折叠节点
 // 初始化节点展开状态
@@ -256,13 +242,18 @@ const getContextMenuItems = (node: NodeData | null): ContextMenuItem[] => {
     {
       label: '节点信息',
       icon: 'info',
-      action: () => {}, // 空函数满足类型要求
-      items: [
-        { label: `路径: ${node.path}`, action: () => {}, disabled: true },
-        { label: `创建时间: ${formatTime(Number(node.createTime))}`, action: () => {}, disabled: true },
-        { label: `修改时间: ${formatTime(Number(node.updateTime))}`, action: () => {}, disabled: true },
-        { label: `版本: ${node.version}`, action: () => {}, disabled: true }
-      ]
+      action: async () => {
+        try {
+          // 获取完整的节点信息
+          const response = await store.request<ApiResponse<NodeData>>(`/api/zk/nodes?path=${encodeURIComponent(node.path)}`);
+          if (response.success && response.data) {
+            contextMenu.value.node = response.data;
+            showNodeInfo.value = true;
+          }
+        } catch (error) {
+          console.error('获取节点信息失败:', error);
+        }
+      }
     },
     {
       label: '新建子节点',
@@ -275,9 +266,17 @@ const getContextMenuItems = (node: NodeData | null): ContextMenuItem[] => {
     {
       label: '编辑节点',
       icon: 'edit',
-      action: () => {
-        store.setSelectedNode(node)
-        emit('node-operation', { type: 'update', node })
+      action: async () => {
+        try {
+          // 获取完整的节点信息
+          const response = await store.request<ApiResponse<NodeData>>(`/api/zk/nodes?path=${encodeURIComponent(node.path)}`);
+          if (response.success && response.data) {
+            store.setSelectedNode(response.data);
+            emit('node-operation', { type: 'update', node: response.data });
+          }
+        } catch (error) {
+          console.error('获取节点信息失败:', error);
+        }
       }
     },
     {
@@ -315,19 +314,75 @@ const formatTime = (timestamp: number | undefined): string => {
 <style scoped>
 .tree-container {
   position: relative;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.tree-content {
+  position: relative;
+  width: 100%;
 }
 
 .tree-list {
   @apply list-none p-0 m-0;
+  width: fit-content;
+  min-width: 100%;
+  padding-bottom: 2rem;
 }
 
 .tree-item {
   @apply relative;
+  width: fit-content;
+  min-width: 100%;
+  padding-right: 1rem;
+  min-height: 24px;
+  line-height: 24px;
 }
 
 .tree-item > div {
   @apply transition-colors duration-200;
+  width: fit-content;
+  min-width: 100%;
+  padding: 0.125rem 0.5rem;
+}
+
+.tree-item > div:hover {
+  @apply bg-gray-100;
+}
+
+.tree-item > div.selected {
+  @apply bg-blue-50;
+}
+
+/* 继承父组件的自定义滚动条样式 */
+:deep(.custom-scrollbar) {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+:deep(.custom-scrollbar::-webkit-scrollbar) {
+  width: 8px;
+  height: 8px;
+}
+
+:deep(.custom-scrollbar::-webkit-scrollbar-track) {
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+:deep(.custom-scrollbar::-webkit-scrollbar-thumb) {
+  background-color: #cbd5e0;
+  border-radius: 4px;
+  border: 2px solid #f7fafc;
+}
+
+:deep(.custom-scrollbar::-webkit-scrollbar-thumb:hover) {
+  background-color: #a0aec0;
+}
+
+:deep(.custom-scrollbar::-webkit-scrollbar-corner) {
+  background: #f7fafc;
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <header class="bg-white shadow">
+  <!-- <header class="bg-white shadow">
     <nav class="container mx-auto px-4 py-4">
       <ul class="flex space-x-4">
         <li>
@@ -22,9 +22,9 @@
         </li>
       </ul>
     </nav>
-  </header>
+  </header> -->
 
-  <main class="container mx-auto mt-4">
+  <main class="container mx-auto overflow-hidden">
     <RouterView />
   </main>
 </template>

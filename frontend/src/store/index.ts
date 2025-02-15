@@ -229,95 +229,76 @@ export const useZkStore = defineStore('zk', {
             throw error;
           }
         } else if (operation === 'create') {
-          const pathParts = data.path.split('/').filter(Boolean)
-          let currentPath = ''
-          let parentPath = '/'
+          // 获取父节点路径
+          const parentPath = this.getParentPath(data.path)
           
-          // 创建所有必要的节点
-          for (const part of pathParts) {
-            currentPath += '/' + part
-            try {
-              // 直接尝试创建节点
-              await this.request<ApiResponse>('/api/zk/nodes', {
-                method: 'POST',
+          // 创建节点
+          try {
+            response = await this.request<ApiResponse>('/api/zk/nodes', {
+              method: 'POST',
+              body: JSON.stringify({
+                cluster: this.currentCluster,
+                path: data.path,
+                data: data.data || '',
+                mode: data.mode || 'PERSISTENT'
+              })
+            })
+          } catch (error: any) {
+            if (error.message === 'NodeExists') {
+              // 如果节点已存在，尝试更新数据
+              response = await this.request<ApiResponse>('/api/zk/nodes/update', {
+                method: 'PUT',
                 body: JSON.stringify({
                   cluster: this.currentCluster,
-                  path: currentPath,
-                  data: currentPath === data.path ? data.data : '',
-                  mode: data.mode || 'PERSISTENT'
+                  path: data.path,
+                  data: data.data,
+                  version: -1
                 })
               })
-            } catch (error: any) {
-              // 如果节点已存在，检查是否需要更新数据
-              if (error.message === 'NodeExists' || (error.message && error.message.includes('NoNode'))) {
-                if (currentPath === data.path) {
-                  // 如果是目标节点，更新其数据
-                  await this.request<ApiResponse>('/api/zk/nodes/update', {
-                    method: 'PUT',
-                    body: JSON.stringify({
-                      cluster: this.currentCluster,
-                      path: currentPath,
-                      data: data.data,
-                      version: -1
-                    })
-                  })
+            } else {
+              throw error
+            }
+          }
+
+          // 如果有父节点，更新父节点状态
+          if (parentPath) {
+            const parentNode = this.findNodeByPath(this.nodeTree, parentPath)
+            if (parentNode) {
+              // 如果父节点是叶子节点，更新其状态
+              if (parentNode.isLeaf) {
+                parentNode.isLeaf = false
+                parentNode.children = []
+              }
+
+              // 如果父节点未展开，获取并展开
+              if (!parentNode.expanded) {
+                const nodeInfo = await this.request<ApiResponse>(`/api/zk/nodes?path=${encodeURIComponent(parentPath)}`)
+                if (nodeInfo.success && nodeInfo.data) {
+                  const processedNode = this.processNodes([nodeInfo.data])[0]
+                  if (processedNode && processedNode.children) {
+                    parentNode.children = processedNode.children
+                    parentNode.expanded = true
+                  }
                 }
               } else {
-                throw error
-              }
-            }
-
-            // 刷新父节点以更新图标状态
-            if (parentPath) {
-              await this.fetchChildNodes(parentPath)
-            }
-            
-            // 更新当前节点的父节点路径
-            parentPath = currentPath
-          }
-          
-          // 所有节点创建完成后，刷新并展开路径
-          try {
-            // 从根节点开始，逐级展开到目标节点
-            let expandPath = ''
-            for (const part of pathParts) {
-              expandPath += '/' + part
-              if (expandPath === '/') continue
-              
-              // 获取并更新节点信息
-              try {
-                const nodeInfo = await this.request<ApiResponse>(`/api/zk/nodes?path=${encodeURIComponent(expandPath)}`);
-                if (nodeInfo.success) {
-                  // 更新节点树中的节点信息
-                  const updateNodeInfo = (nodes: NodeData[]): boolean => {
-                    for (const node of nodes) {
-                      if (node.path === expandPath) {
-                        Object.assign(node, nodeInfo.data)
-                        node.expanded = true
-                        return true
-                      }
-                      if (node.children && updateNodeInfo(node.children)) {
-                        return true
-                      }
-                    }
-                    return false
+                // 如果父节点已展开，只更新子节点列表
+                const nodeInfo = await this.request<ApiResponse>(`/api/zk/nodes?path=${encodeURIComponent(parentPath)}`)
+                if (nodeInfo.success && nodeInfo.data) {
+                  const processedNode = this.processNodes([nodeInfo.data])[0]
+                  if (processedNode && processedNode.children) {
+                    parentNode.children = processedNode.children
                   }
-                  updateNodeInfo(this.nodeTree)
                 }
-              } catch (err) {
-                console.warn('更新节点信息失败:', err)
               }
-              
-              await this.fetchChildNodes(expandPath)
+
+              // 找到并选中新创建的节点
+              if (parentNode.children) {
+                const newNode = parentNode.children.find(child => child.path === data.path)
+                if (newNode) {
+                  this.setSelectedNode(newNode)
+                }
+              }
             }
-            
-            // 最后刷新并选中目标节点的父节点
-            const finalParentPath = this.getParentPath(data.path)
-            if (finalParentPath) {
-              await this.fetchChildNodes(finalParentPath)
-            }
-          } catch (err) {
-            console.warn('展开节点路径失败:', err)
           }
         } else if (operation === 'update') {
           // 检查是否是受保护的 zookeeper 节点
@@ -413,6 +394,21 @@ export const useZkStore = defineStore('zk', {
         return false;
       };
       updateNode(this.nodeTree);
+    },
+
+    findNodeByPath(nodes: NodeData[], path: string): NodeData | undefined {
+      for (const node of nodes) {
+        if (node.path === path) {
+          return node;
+        }
+        if (node.children) {
+          const found = this.findNodeByPath(node.children, path);
+          if (found) {
+            return found;
+          }
+        }
+      }
+      return undefined;
     }
   }
 })

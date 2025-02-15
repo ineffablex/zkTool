@@ -19,8 +19,9 @@
             />
             <button
               @click="handleJumpToNode"
-              class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
+              class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
               :disabled="!store.isConnected"
+              :title="!store.isConnected ? '请先连接集群' : ''"
             >
               跳转
             </button>
@@ -53,18 +54,18 @@
         </div>
 
         <!-- 错误提示 -->
-        <div v-if="error" class="p-4 bg-red-100 text-red-700">
+        <!-- <div v-if="error" class="p-4 bg-red-100 text-red-700">
           {{ error }}
-        </div>
+        </div> -->
 
         <!-- 主内容区域 -->
-        <div class="flex-1 flex overflow-hidden">
+        <div class="flex-1 flex overflow-hidden content-wrapper">
           <!-- 左侧树形结构 -->
-          <div class="w-1/3 border-r bg-white overflow-hidden flex flex-col">
+          <div class="w-1/3 border-r bg-white overflow-hidden flex flex-col tree-wrapper">
             <div class="p-4 border-b bg-gray-50">
               <h2 class="text-lg font-medium">节点树</h2>
             </div>
-            <div class="flex-1 overflow-auto">
+            <div class="flex-1 overflow-auto custom-scrollbar">
               <TreeView
                 v-if="store.nodeTree.length > 0"
                 :data="store.nodeTree"
@@ -78,14 +79,14 @@
             </div>
           </div>
           <!-- 右侧节点内容 -->
-          <div class="flex-1 bg-white overflow-hidden flex flex-col">
+          <div class="flex-1 bg-white overflow-hidden flex flex-col content-panel">
             <div class="p-4 border-b bg-gray-50">
               <h2 class="text-lg font-medium">节点内容</h2>
             </div>
-            <div class="flex-1 overflow-auto">
-              <pre class="overflow-wrap break-word" contenteditable="true" @input="(e: Event) => handleDataInput(e as InputEvent)" @keydown.enter.prevent="handleEnterKey"  style="text-align: left;">
-                {{ formatNodeData(store.selectedNode?.data) }}
-              </pre>
+            <div class="flex-1 overflow-auto custom-scrollbar">
+              <pre class="overflow-wrap break-word w-full" contenteditable="true" 
+              @keydown.enter.prevent="handleEnterKey"  
+              style="text-align: left;">{{ formatNodeData(store.selectedNode?.data) }}</pre>
             </div>
           </div>
         </div>
@@ -95,6 +96,7 @@
           v-model:show="showNodeEditDialog"
           :mode="editMode"
           :node="store.selectedNode"
+          :parent-path="editMode === 'create' ? store.selectedNode?.path : ''"
           @submit="handleNodeEdit"
         />
 
@@ -123,6 +125,7 @@ import DialogModal from '../components/DialogModal.vue'
 import NodeEditDialog from '../components/NodeEditDialog.vue'
 import type { NodeData, NodeOperationData, ApiResponse } from '../types/node'
 import ClusterTab from '@/components/ClusterTab.vue'
+import { ElMessage } from 'element-plus'
 
 const store = useZkStore()
 const jumpPath = ref('')
@@ -152,6 +155,8 @@ const handleNodeClick = (node: NodeData) => {
   }
   // 设置新选中的节点
   store.setSelectedNode(node);
+  // 同步节点路径到输入框
+  jumpPath.value = node.path;
 }
 
 // 节点展开/折叠处理
@@ -193,7 +198,7 @@ const handleJumpToNode = async () => {
       // 展开路径上的所有父节点
       const pathParts = fullPath.split('/').filter(Boolean);
       
-      // 1. 先确保根节点展开
+      // 检查根节点状态
       const rootNode = store.nodeTree[0];
       if (rootNode && !rootNode.expanded) {
         await store.fetchChildNodes('/');
@@ -202,31 +207,38 @@ const handleJumpToNode = async () => {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
       
-      // 2. 逐级展开其他节点
+      // 逐级检查并展开节点
       let currentPath = '';
+      let currentNode = rootNode;
+      
       for (const part of pathParts) {
         currentPath += '/' + part;
         if (currentPath === '/') continue;
         
-        try {
-          // 获取当前节点的子节点
-          await store.fetchChildNodes(currentPath);
-          
-          // 设置父节点为展开状态
-          store.updateNodeExpandState(currentPath, true);
-          
-          // 等待一小段时间确保 DOM 更新
-          await new Promise(resolve => setTimeout(resolve, 50));
-        } catch (err) {
-          console.error(`展开节点 ${currentPath} 失败:`, err);
+        // 在当前节点的子节点中查找目标节点
+        const targetNode = currentNode?.children?.find(child => child.path === currentPath);
+        
+        // 如果找到节点但未展开，则展开它
+        if (targetNode && !targetNode.expanded) {
+          try {
+            await store.fetchChildNodes(currentPath);
+            store.updateNodeExpandState(currentPath, true);
+            // 更新当前节点引用
+            currentNode = targetNode;
+            // 短暂等待以确保 DOM 更新
+            await new Promise(resolve => setTimeout(resolve, 50));
+          } catch (err) {
+            console.error(`展开节点 ${currentPath} 失败:`, err);
+          }
+        } else if (targetNode) {
+          // 如果节点已经展开，直接更新当前节点引用
+          currentNode = targetNode;
         }
       }
       
-      // 选中目标节点
+      // 选中目标节点并更新路径
       store.setSelectedNode(response.data);
-      
-      // 清空输入
-      jumpPath.value = '';
+      jumpPath.value = fullPath;
       error.value = '';
     }
   } catch (err) {
@@ -243,10 +255,19 @@ const handleNodeOperation = ({ type, node }: { type: 'create' | 'update' | 'dele
     showNodeEditDialog.value = true
   } else if (type === 'update') {
     editMode.value = 'update'
+    // 确保在打开对话框前已经设置了选中的节点
+    store.setSelectedNode(node)
     showNodeEditDialog.value = true
   } else if (type === 'delete') {
     if (node.path.startsWith('/zookeeper')) {
       error.value = '系统保护节点，不允许删除'
+      ElMessage.error(error.value)
+      return
+    }
+    // 检查是否有子节点
+    if (node.children && node.children.length > 0) {
+      error.value = '该节点包含子节点，不能直接删除'
+      ElMessage.error(error.value)
       return
     }
     showDeleteConfirmDialog.value = true
@@ -260,37 +281,139 @@ const handleNodeEdit = async (data: NodeOperationData) => {
 
     if (editMode.value === 'create') {
       // 如果是在现有节点下创建子节点，需要拼接完整路径
+      let parentNode = null;
       if (store.selectedNode) {
         const parentPath = store.selectedNode.path;
         const nodePath = data.path.startsWith('/') ? data.path.slice(1) : data.path;
         data.path = parentPath === '/' ? '/' + nodePath : parentPath + '/' + nodePath;
+        parentNode = store.selectedNode;
       }
+
       await store.performNodeOperation('create', data);
-    } else {
+      ElMessage.success('节点创建成功');
+
+      // 智能处理节点展开
+      if (parentNode) {
+        // 如果父节点是叶子节点，需要更新其状态
+        if (parentNode.isLeaf) {
+          parentNode.isLeaf = false;
+          parentNode.children = [];
+        }
+
+        // 如果父节点未展开，则只需要展开父节点
+        if (!parentNode.expanded) {
+          const response = await store.request<ApiResponse<NodeData>>(`/api/zk/nodes?path=${encodeURIComponent(parentNode.path)}`);
+          if (response.success && response.data) {
+            parentNode.children = response.data.children || [];
+            parentNode.expanded = true;
+            
+            // 找到新创建的节点并选中它
+            const newNode = parentNode.children.find(child => child.path === data.path);
+            if (newNode) {
+              store.setSelectedNode(newNode);
+              jumpPath.value = newNode.path;
+            }
+          }
+        } else {
+          // 如果父节点已经展开，只需要刷新其子节点
+          const response = await store.request<ApiResponse<NodeData>>(`/api/zk/nodes?path=${encodeURIComponent(parentNode.path)}`);
+          if (response.success && response.data) {
+            parentNode.children = response.data.children || [];
+            
+            // 找到新创建的节点并选中它
+            const newNode = parentNode.children.find(child => child.path === data.path);
+            if (newNode) {
+              store.setSelectedNode(newNode);
+              jumpPath.value = newNode.path;
+            }
+          }
+        }
+      }
+    } else if (editMode.value === 'update') {
+      // 更新节点
       await store.performNodeOperation('update', {
         path: store.selectedNode!.path,
         data: data.data
       });
+      
+      // 更新成功后刷新节点信息
+      const response = await store.request<ApiResponse<NodeData>>(`/api/zk/nodes?path=${encodeURIComponent(store.selectedNode!.path)}`);
+      if (response.success && response.data) {
+        // 更新节点数据
+        store.setSelectedNode(response.data);
+      }
+      
+      ElMessage.success('节点修改成功');
     }
+    
     showNodeEditDialog.value = false;
+    error.value = ''; // 清除可能存在的错误信息
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : '未知错误';
     error.value = `${editMode.value === 'create' ? '创建' : '更新'}节点失败: ${errorMessage}`;
+    ElMessage.error(error.value);
   }
 };
 
 const handleNodeDelete = async () => {
   if (!store.selectedNode) return
+  
+  // 再次检查是否有子节点（以防在弹窗期间发生变化）
+  if (store.selectedNode.children && store.selectedNode.children.length > 0) {
+    error.value = '该节点包含子节点，不能直接删除'
+    ElMessage.error(error.value);
+    showDeleteConfirmDialog.value = false
+    return
+  }
+
   try {
+    const deletedNodePath = store.selectedNode.path
     await store.performNodeOperation('delete', {
-      path: store.selectedNode.path
+      path: deletedNodePath
     })
+
+    // 获取父节点路径
+    const parentPath = deletedNodePath.substring(0, deletedNodePath.lastIndexOf('/'))
+    const parentNode = findNodeByPath(store.nodeTree, parentPath === '' ? '/' : parentPath)
+    
+    // 重新获取父节点的子节点数据
+    if (parentNode) {
+      const response = await store.request<ApiResponse<NodeData>>(`/api/zk/nodes?path=${encodeURIComponent(parentNode.path)}`);
+      if (response.success && response.data) {
+        // 更新父节点的子节点数据
+        parentNode.children = response.data.children || []
+        // 如果没有子节点了，将其标记为叶子节点
+        if (parentNode.children.length === 0) {
+          parentNode.isLeaf = true
+        }
+      }
+    }
+
     showDeleteConfirmDialog.value = false
     store.setSelectedNode(null)
+    error.value = '' // 清除可能存在的错误信息
+    ElMessage.success('节点删除成功');
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : '未知错误'
     error.value = `删除节点失败: ${errorMessage}`
+    ElMessage.error(error.value);
   }
+}
+
+// 添加查找节点的辅助函数
+const findNodeByPath = (nodes: NodeData[], path: string): NodeData | null => {
+  for (const node of nodes) {
+    if (node.path === path) {
+      return node
+    }
+    if (node.children) {
+      const found = findNodeByPath(node.children, path)
+      if (found) {
+        return found
+      }
+    }
+  }
+  return null
 }
 
 // 格式化节点数据
@@ -305,14 +428,7 @@ const formatNodeData = (data: string | undefined | null): string => {
   }
 };
 
-// 修改处理函数
-const handleDataInput = (event: InputEvent) => {
-  const target = event.target as HTMLPreElement;
-  // 去除前导和尾随空格及空行
-  const trimmedContent = target.textContent?.replace(/^[\s\n]+|[\s\n]+$/g, '') || '';
-  tempNodeData.value = trimmedContent;
-  hasDataChanged.value = tempNodeData.value !== formatNodeData(store.selectedNode?.data);
-};
+
 
 // 修改回车键处理函数
 const handleEnterKey = (event: KeyboardEvent) => {
@@ -330,6 +446,7 @@ const handleUpdateNode = async () => {
     
     // 如果数据没有变化，不做任何处理
     if (newData === formatNodeData(store.selectedNode.data)) {
+      ElMessage.info('节点内容未发生变化')
       return
     }
     
@@ -342,9 +459,12 @@ const handleUpdateNode = async () => {
     // 更新成功后重置状态
     hasDataChanged.value = false
     tempNodeData.value = ''
+    error.value = '' // 清除可能存在的错误信息
+    ElMessage.success('节点内容修改成功')
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : '未知错误'
     error.value = `更新节点数据失败: ${errorMessage}`
+    ElMessage.error(error.value)
   }
 }
 
@@ -397,22 +517,15 @@ const handleConnectionError = (errorMessage: string) => {
 .home {
   display: flex;
   margin-left: 5vh;
-  height: 90vh;
+  height: 100vh;
   overflow: hidden;
-  border: 1px solid red;
 }
 
 .resize-container {
   display: flex;
   width: 100%;
-}
-
-.resizer {
-  width: 5px;
-  cursor: ew-resize;
-  background-color: #ccc;
-  position: relative;
-  z-index: 10;
+  height: 100%;
+  overflow: hidden;
 }
 
 .main-content {
@@ -420,7 +533,27 @@ const handleConnectionError = (errorMessage: string) => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-width: 0; /* 防止 flex 子项溢出 */
+  height: 100%;
+  min-width: 0;
+}
+
+.main-content > .content-wrapper {
+  height: calc(100vh - 4rem);
+  min-height: 0;
+}
+
+.main-content .tree-wrapper {
+  height: 100% !important;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content .content-panel {
+  height: 100% !important;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .node-content {
@@ -431,7 +564,7 @@ const handleConnectionError = (errorMessage: string) => {
 }
 
 pre[contenteditable="true"] {
-  @apply outline-none border-2 border-blue-300 rounded-md p-2 min-h-[98%] w-full;
+  @apply outline-none border-2 border-blue-300 rounded-md p-2 w-full max-h-[98%] min-h-[98%] overflow-auto;
   white-space: pre-wrap;
   word-wrap: break-word;
 }
